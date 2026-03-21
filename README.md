@@ -35,9 +35,42 @@ When the main contest program is executed, it parses this text file via the `con
 
 ## Build and Deployment
 
-Currently, this repository serves as a structured development and version control environment. Because local cross-compilation is not yet fully configured, deployment is handled by manually copying the required library functions and execution logic directly into the KIPR IDE onto the Wombat controller.
+Cross-compilation is set up using the `wombat-cross` Docker toolchain, allowing the entire codebase to be compiled on a standard PC and deployed directly to the Wombat controller over the network — no manual copy-paste into the KIPR IDE required.
 
-The immediate roadmap includes integrating the `wombat-cross` toolchain. Implementing this toolchain will eliminate the need for manual code transfer, allowing the entire modular directory structure (`lib/`, `config/`, `run/`) to be compiled natively on a standard PC and deployed directly to the ARM-based controller as a complete executable.
+### 1. Compile
 
-For reference on the planned cross-compilation environment, see:
+Pull the cross-compilation image:
+```bash
+docker pull sillyfreak/wombat-cross
+```
+
+Then run the build from the repository root:
+```bash
+docker run --rm -v "${PWD}:/home/kipr" sillyfreak/wombat-cross bash /home/kipr/build.sh
+```
+
+This compiles the C code for the Wombat's ARM target and produces the output binary.
+
+### 2. Deploy
+
+The binary must meet two requirements to be recognized by the Wombat:
+- **No file extension**
+- **Named exactly** `botball_user_program`
+
+Transfer it to the controller via SFTP into the project's `bin/` folder. Due to SFTP write permission restrictions on the Wombat, an SSH step is required beforehand to grant write access, and a second SSH step afterwards to mark the file as executable (the `-x` flag is not preserved by SFTP the first time):
+```bash
+# 1. Grant write permissions on the target directory
+ssh root@<wombat-ip> "chmod 777 /path/to/project/bin"
+
+# 2. Transfer the binary
+sftp root@<wombat-ip>
+> put botball_user_program /<User>/<your_project>/bin/botball_user_program
+
+# 3. Make the binary executable
+ssh root@<wombat-ip> "chmod +x /<User>/<your_project>/project/bin/botball_user_program"
+```
+
+> **Note:** Automation of this deploy process (wrapping the SSH/SFTP steps into a single script) is planned as a next step.
+
+For reference on the cross-compilation environment, see:
 [PRIArobotics/wombat-cross](https://github.com/PRIArobotics/wombat-cross)
