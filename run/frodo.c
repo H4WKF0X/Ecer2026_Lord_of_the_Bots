@@ -7,7 +7,7 @@
 #include "config_parser.h"
 
 /** 
- * This is the code running on the sero bot in the mechanical video, 
+ * This is the code running on the servo bot in the mechanical video, 
  * that was collecting pipes from the dispenser.
  * Refer to the lib folder for more information on functions
  */
