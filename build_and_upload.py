@@ -2,7 +2,7 @@
 """
 build_and_upload.py
 -------------------
-1. Finds the most recently modified .c file inside run/
+1. Finds the most recently modified .c file inside run/ (or use the one you specify)
 2. Updates build.sh so it compiles that file
 3. Runs the Docker cross-compiler
 4. Uploads the resulting binary to the Wombat via scp
@@ -12,10 +12,12 @@ Uses your ~/.ssh/config alias passed as a CLI argument.
 
 Usage:
     python3 build_and_upload.py <ssh_alias>
+    python3 build_and_upload.py <ssh_alias> run/my_program.c
     python3 build_and_upload.py <ssh_alias> --no-build   # skip compile, just upload
 
 Example:
     python3 build_and_upload.py bot
+    python3 build_and_upload.py bot run/sam.c
 """
 
 import argparse
@@ -26,7 +28,9 @@ import sys
 import time
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-REMOTE_DIR    = "/root/Documents/KISS/Default User/ECER26_testing/bin"
+# Path on the remote with the space kept as-is (no shell escaping here —
+# we pass it through subprocess so the shell never sees it).
+REMOTE_DIR    = "Documents/KISS/Default User/ECER2026_testing/bin"
 REMOTE_BINARY = "botball_user_program"
 LOCAL_BINARY  = pathlib.Path("output/botball_user_program")
 RUN_DIR       = pathlib.Path("run")
@@ -37,7 +41,10 @@ DOCKER_IMAGE  = "sillyfreak/wombat-cross"
 # ── SSH helpers ───────────────────────────────────────────────────────────────
 
 def ssh_run(alias: str, remote_cmd: str):
-    """Run a command on the remote host via ssh."""
+    """Run a command on the remote host via ssh.
+    The command is passed as a single string — the remote shell interprets it,
+    so spaces in paths must be quoted *within* that string.
+    """
     result = subprocess.run(["ssh", alias, remote_cmd])
     if result.returncode != 0:
         sys.exit(f"[ERROR] Remote command failed (exit {result.returncode}): {remote_cmd}")
@@ -54,6 +61,22 @@ def find_latest_c_file(run_dir: pathlib.Path) -> pathlib.Path:
     age = time.time() - latest.stat().st_mtime
     print(f"[INFO]  Most recently changed file: {latest}  ({age:.0f}s ago)")
     return latest
+
+
+def resolve_c_file(run_dir: pathlib.Path, user_input: str | None) -> pathlib.Path:
+    """Return the .c file to compile — either the one the user specified or the latest."""
+    if user_input:
+        p = pathlib.Path(user_input)
+        if not p.exists():
+            # Try looking inside run/ as a convenience
+            p = run_dir / p.name
+        if not p.exists():
+            sys.exit(f"[ERROR] Source file not found: {user_input}")
+        if p.suffix != ".c":
+            sys.exit(f"[ERROR] Expected a .c file, got: {p}")
+        print(f"[INFO]  Using specified source file: {p}")
+        return p
+    return find_latest_c_file(run_dir)
 
 
 def write_build_script(c_file: pathlib.Path):
@@ -102,24 +125,27 @@ def run_docker_build():
 # ── Upload ────────────────────────────────────────────────────────────────────
 
 def upload_binary(alias: str):
-    """Upload the compiled binary to the Wombat via scp and ensure +x."""
+    """Upload the compiled binary to the Wombat via scp and ensure +x.
+
+    Key fix: scp receives the destination as a *single* list element
+    (no shell involved), so the space in 'Default User' is passed verbatim
+    and does not need any escaping.
+    """
     if not LOCAL_BINARY.exists():
         sys.exit(f"[ERROR] Binary not found at {LOCAL_BINARY}. Did the build succeed?")
 
-    remote_path = f"{alias}:{REMOTE_DIR}/{REMOTE_BINARY}"
+    remote_dest = f"{alias}:{REMOTE_DIR}/{REMOTE_BINARY}"
 
-    # Ensure the remote directory exists
-    ssh_run(alias, f'mkdir -p "{REMOTE_DIR}"')
-
-    print(f"[INFO]  Uploading {LOCAL_BINARY} -> {remote_path} …")
-    result = subprocess.run(["scp", str(LOCAL_BINARY), remote_path])
+    print(f"[INFO]  Uploading {LOCAL_BINARY} → {remote_dest} …")
+    result = subprocess.run(["scp", str(LOCAL_BINARY), remote_dest])
     if result.returncode != 0:
         sys.exit(f"[ERROR] Upload failed (exit {result.returncode})")
     print("[INFO]  Upload complete.")
 
-    # Ensure executable bit is set
-    ssh_run(alias, f'chmod 755 "{REMOTE_DIR}/{REMOTE_BINARY}"')
-    print("[INFO]  chmod 755 applied.")
+    # Quote the path for the remote shell (single-quotes around the whole path)
+    remote_path_sh = f"'{REMOTE_DIR}/{REMOTE_BINARY}'"
+    ssh_run(alias, f"chmod 755 {remote_path_sh}")
+    print("[INFO]  chmod 755 applied — executable bit confirmed.")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -127,11 +153,17 @@ def upload_binary(alias: str):
 def main():
     parser = argparse.ArgumentParser(description="Build & upload Wombat program")
     parser.add_argument("alias", help="SSH config alias for the robot (e.g. 'bot')")
+    parser.add_argument(
+        "source",
+        nargs="?",
+        default=None,
+        help="Path to the .c file to compile (default: most recently modified file in run/)",
+    )
     parser.add_argument("--no-build", action="store_true", help="Skip compile, just upload")
     args = parser.parse_args()
 
     if not args.no_build:
-        c_file = find_latest_c_file(RUN_DIR)
+        c_file = resolve_c_file(RUN_DIR, args.source)
         write_build_script(c_file)
         run_docker_build()
 

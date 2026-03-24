@@ -10,10 +10,8 @@ INCLUDES="-Ilib/include"
 LIB_SRCS="lib/src/config_parser.c lib/src/drive.c lib/src/servo.c"
 
 mkdir -p $OUTPUT_DIR
-
 cd /home/kipr
 
-echo "Building drive_test -> botball_user_program..."
-$COMPILER -Wall $INCLUDES $LIB_SRCS run/frodo.c $LIB_FLAGS -o /home/kipr/output/botball_user_program
-
-echo "✅ Done! Binaries in output/"
+echo "Building sam -> botball_user_program..."
+$COMPILER -Wall $INCLUDES $LIB_SRCS run/sam.c $LIB_FLAGS -o /home/kipr/output/botball_user_program
+echo "Done! Binary in output/"
